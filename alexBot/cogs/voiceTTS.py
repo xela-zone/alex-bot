@@ -65,13 +65,29 @@ class VoiceTTS(Cog):
         )
 
         self.bot.voiceCommandsGroup.add_command(
-            app_commands.Command(name="tts", description="Send text to speech", callback=self.vc_tts)
+            app_commands.Command(name="tts", description="setup text to speech", callback=self.vc_tts)
+        )
+        self.bot.voiceCommandsGroup.add_command(
+            app_commands.Command(name="tts_reset", description="force quit the server's tts setup", callback=self.reset_server)
+            
         )
 
         await self.gtts.__aenter__()
 
+    async def reset_server(self,interaction: discord.Interaction):
+        if interaction.guild.id in self.runningTTS:
+            rtts = self.runningTTS[interaction.guild.id]
+            
+            if rtts.voiceClient.is_connected():
+                await rtts.voiceClient.disconnect()
+            del self.runningTTS[interaction.guild.id]
+            return await interaction.response.send_message("voice tts has been reset.")
+        await interaction.response.send_message("voice tts not running right now.")
+        
+
     async def cog_unload(self) -> None:
         self.bot.voiceCommandsGroup.remove_command("tts")
+        self.bot.voiceCommandsGroup.reove_command('tts_reset')
         for vc in self.runningTTS.values():
             await vc.voiceClient.disconnect()
         await self.gtts.__aexit__(None, None, None)
