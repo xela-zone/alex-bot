@@ -187,7 +187,7 @@ class VoiceTTS(Cog):
 
     @app_commands.autocomplete(model=model_autocomplete)
     async def vc_tts(self, interaction: discord.Interaction, model: str):
-        if not self._vc_tts_validation(interaction):
+        if not self._vc_tts_validation(interaction, model):
             return
         
         if model == "SAVED":
@@ -246,7 +246,7 @@ class VoiceTTS(Cog):
         if error:
             log.exception(error)
 
-    async def _vc_tts_validation(self, interaction):
+    async def _vc_tts_validation(self, interaction, model):
 
         valid = True
 
