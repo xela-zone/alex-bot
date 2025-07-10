@@ -43,13 +43,13 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},mode=max
           cache-to: type=inline,mode=max
-      - name: Tailscale
-        uses: tailscale/github-action@v2
-        with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:ci
-      - name: SSH Remote Commands
-        shell: bash
-        run: |
-          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -t alex@alexbot 'cd alex-bot && docker compose pull && docker compose up -d'
+      # - name: Tailscale
+      #   uses: tailscale/github-action@v2
+      #   with:
+      #     oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      #     oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+      #     tags: tag:ci
+      # - name: SSH Remote Commands
+      #   shell: bash
+      #   run: |
+      #     ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -t alex@alexbot 'cd alex-bot && docker compose pull && docker compose up -d'
