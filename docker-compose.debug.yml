@@ -1,6 +1,5 @@
 services:
   alexbot:
-    image: alexbot
     volumes:
       - ./:/alexbot
     build: .
