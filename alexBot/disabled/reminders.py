@@ -108,7 +108,7 @@ class Reminders(Cog):
 
             await self._handle_clearing(reminder, allowedMentions, target, message)
 
-            if self._handle_reminder(self, reminder):
+            if self._handle_reminder(reminder):
                 return
 
             # remove task from tasks dict
