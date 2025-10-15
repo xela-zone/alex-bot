@@ -165,7 +165,7 @@ class VoiceCommands(Cog):
 
     @Cog.listener()
     async def on_voice_state_update(self, member: discord.Member, before: VoiceState, after: VoiceState):
-        if before.channel.id in self.current_thatars:
+        if before.channel and before.channel.id in self.current_thatars:
             if len(before.channel.members) == 0:
                 await before.channel.delete(reason="no one left")
                 self.current_thatars.remove(before.channel.id)

@@ -68,22 +68,22 @@ class VoiceTTS(Cog):
             app_commands.Command(name="tts", description="setup text to speech", callback=self.vc_tts)
         )
         self.bot.voiceCommandsGroup.add_command(
-            app_commands.Command(name="tts_reset", description="force quit the server's tts setup", callback=self.reset_server)
-            
+            app_commands.Command(
+                name="tts_reset", description="force quit the server's tts setup", callback=self.reset_server
+            )
         )
 
         await self.gtts.__aenter__()
 
-    async def reset_server(self,interaction: discord.Interaction):
+    async def reset_server(self, interaction: discord.Interaction):
         if interaction.guild.id in self.runningTTS:
             rtts = self.runningTTS[interaction.guild.id]
-            
+
             if rtts.voiceClient.is_connected():
                 await rtts.voiceClient.disconnect()
             del self.runningTTS[interaction.guild.id]
             return await interaction.response.send_message("voice tts has been reset.")
         await interaction.response.send_message("voice tts not running right now.")
-        
 
     async def cog_unload(self) -> None:
         self.bot.voiceCommandsGroup.remove_command("tts")
@@ -203,9 +203,9 @@ class VoiceTTS(Cog):
 
     @app_commands.autocomplete(model=model_autocomplete)
     async def vc_tts(self, interaction: discord.Interaction, model: str):
-        if not self._vc_tts_validation(interaction, model):
+        if not await self._vc_tts_validation(interaction, model):
             return
-        
+
         if model == "SAVED":
             # we pull from database, and use that
             async with async_session() as session:
