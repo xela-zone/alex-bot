@@ -5,7 +5,7 @@ soundfile~=0.13.1
 
 #SMALLER
 
-discord.py[voice] ~=2.6.4
+discord.py[voice] ~=2.7.0
 jishaku @ git+https://github.com/Gorialis/jishaku@master
 aiohttp ~=3.13.0
 chardet~=5.2.0
