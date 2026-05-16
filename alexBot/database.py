@@ -197,6 +197,12 @@ class MudaeSeriesRequest(Base):
     requestedBy: Mapped[int] = mapped_column(BIGINT(), nullable=False, primary_key=True)
 
 
+class CommandUsage(Base):
+    __tablename__ = "commandusage"
+    command_name: Mapped[str] = mapped_column(String(), primary_key=True)
+    count: Mapped[int] = mapped_column(Integer(), default=0)
+
+
 user = config.db_user
 pw = config.db_pw
 db = config.db_name
