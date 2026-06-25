@@ -8,3 +8,4 @@ db/
 .env
 SERVICE_ACCOUNT.JSON
 GOOGLE_SERVICE_ACCOUNT.json
+.direnv/
