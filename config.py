@@ -21,7 +21,6 @@ cat_token = os.environ.get('THECATAPI_KEY')
 
 prefix = os.environ.get('BOT_PREFIX')
 
-COBALT_URL = os.environ.get('COBALT_URL')
 
 # setthe DATABASE_URL env var
 db_full_url = os.environ.get("DATABASE_URL")
