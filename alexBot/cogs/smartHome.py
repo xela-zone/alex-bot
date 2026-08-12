@@ -67,7 +67,6 @@ class PhoneMonitor(Cog):
     def __init__(self, bot: "Bot"):
         super().__init__(bot)
         self.notifiable: List[int] = list(USER_TO_HA_DEVICE.keys())
-        self.status_cache = {}
 
     @discord.app_commands.command(name="ha-vc-notifs", description="Toggle voice channel notifications for your phone")
     @discord.app_commands.guilds(GUILD)
@@ -316,45 +315,6 @@ class PhoneMonitor(Cog):
                 ) as r:
                     log.debug(f"webhook response: {r.status}")
 
-    @Cog.listener()
-    async def on_presence_update(self, before: discord.Member, after: discord.Member):
-        if after.id in [x[0] for x in MEMBERS.values()]:
-            if before.status != after.status:
-                mqtt: HomeAssistantIntigreation = self.bot.get_cog("HomeAssistantIntigreation")
-                if not mqtt:
-                    return
-                blob = {"status": after.status.value, "mobile": after.is_on_mobile()}
-
-                if self.status_cache.get(after.id) != blob:
-                    self.status_cache[after.id] = blob
-                    await mqtt.mqttPublish(f"discord/{after.id}/status", json.dumps(blob))
-                    device = self.get_device(after)
-                    payload = {
-                        "device": {**device},
-                        "name": "Is Mobile",
-                        "state_topic": f"discord/{after.id}/status",
-                        "value_template": "{{ value_json.mobile }}",
-                        "unique_id": f"discord-{after.id}-mobile",
-                        "payload_on": True,
-                        "payload_off": False,
-                    }
-                    # do home assistant discovery for the topic
-                    await mqtt.mqttPublish(
-                        f"homeassistant/binary_sensor/alexBot/{after.id}-status-mobile/config", json.dumps(payload)
-                    )
-
-                    payload = {
-                        "device": {**device},
-                        "name": "Status",
-                        "state_topic": f"discord/{after.id}/status",
-                        "value_template": "{{ value_json.status }}",
-                        "unique_id": f"discord-{after.id}-status",
-                        "device_class": "enum",
-                    }
-
-                    await mqtt.mqttPublish(
-                        f"homeassistant/sensor/alexBot/{after.id}-status/config", json.dumps(payload)
-                    )
 
     @staticmethod
     def get_device(user: discord.Member) -> Dict:
