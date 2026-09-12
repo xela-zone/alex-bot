@@ -46,7 +46,9 @@ class TTSUserInstance:
 class TTSInstance:
     voiceClient: discord.VoiceClient
     users: Dict[int, TTSUserInstance] = dataclasses.field(default_factory=dict)
-    queue: List[discord.AudioSource] = dataclasses.field(default_factory=list)
+    queue: asyncio.Queue = dataclasses.field(default_factory=asyncio.Queue)
+    play_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
+    worker_task: Optional[asyncio.Task] = None
 
 
 class VoiceTTS(Cog):
@@ -54,7 +56,48 @@ class VoiceTTS(Cog):
         super().__init__(bot)
         self.runningTTS: Dict[int, TTSInstance] = {}
         self.gtts: AsyncGTTSSession = None  # type: ignore
-        self.running_queue_handlers: Dict[int, bool] = {}
+
+    async def _cleanup_guild(self, guild_id: int):
+        instance = self.runningTTS.pop(guild_id, None)
+        if not instance:
+            return
+        if instance.worker_task and not instance.worker_task.done():
+            instance.worker_task.cancel()
+        if instance.voiceClient.is_connected():
+            await instance.voiceClient.disconnect()
+
+    async def _queue_worker(self, guild_id: int, instance: TTSInstance):
+        try:
+            while True:
+                sound = await instance.queue.get()
+                try:
+                    if not instance.voiceClient.is_connected():
+                        log.warning(f"Voice client for guild {guild_id} not connected; waiting for reconnection...")
+                        for _ in range(20):
+                            if instance.voiceClient.is_connected():
+                                break
+                            await asyncio.sleep(0.5)
+                        if not instance.voiceClient.is_connected():
+                            log.error(f"Voice client for guild {guild_id} failed to reconnect. Dropping audio.")
+                            continue
+
+                    instance.play_event.clear()
+
+                    def after_playback(error: Optional[Exception]):
+                        if error:
+                            log.exception(f"TTS audio playback error: {error}")
+                        self.bot.loop.call_soon_threadsafe(instance.play_event.set)
+
+                    instance.voiceClient.play(sound, after=after_playback)
+                    await instance.play_event.wait()
+                except Exception as e:
+                    log.exception(f"Error during TTS playback in guild {guild_id}: {e}")
+                finally:
+                    instance.queue.task_done()
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            log.exception(f"TTS queue worker crashed unexpectedly for guild {guild_id}: {e}")
 
     async def cog_load(self):
         if not self.bot.config.google_service_account:
@@ -77,19 +120,15 @@ class VoiceTTS(Cog):
 
     async def reset_server(self, interaction: discord.Interaction):
         if interaction.guild.id in self.runningTTS:
-            rtts = self.runningTTS[interaction.guild.id]
-
-            if rtts.voiceClient.is_connected():
-                await rtts.voiceClient.disconnect()
-            del self.runningTTS[interaction.guild.id]
+            await self._cleanup_guild(interaction.guild.id)
             return await interaction.response.send_message("voice tts has been reset.")
         await interaction.response.send_message("voice tts not running right now.")
 
     async def cog_unload(self) -> None:
         self.bot.voiceCommandsGroup.remove_command("tts")
-        self.bot.voiceCommandsGroup.reove_command('tts_reset')
-        for vc in self.runningTTS.values():
-            await vc.voiceClient.disconnect()
+        self.bot.voiceCommandsGroup.remove_command("tts_reset")
+        for guild_id in list(self.runningTTS.keys()):
+            await self._cleanup_guild(guild_id)
         await self.gtts.__aexit__(None, None, None)
 
     @Cog.listener()
@@ -105,7 +144,7 @@ class VoiceTTS(Cog):
             content = message.clean_content
             content = SPOILERREGEX.sub("", content)
             content = EMOJIREGEX.sub(r"\1", content)
-            content = LINKREGEX.sub("Link to \1", content)
+            content = LINKREGEX.sub(r"Link to \1", content)
             if content == "":
                 return
             await self.sendTTS(
@@ -118,21 +157,30 @@ class VoiceTTS(Cog):
     async def on_voice_state_update(
         self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState
     ):
-        ttsInstance = self.runningTTS.get(member.guild.id)
-        if not ttsInstance:
+        guild = member.guild
+        if not guild or guild.id not in self.runningTTS:
             return
-        if after.channel is not None:
+
+        instance = self.runningTTS[guild.id]
+
+        # 1. If the bot itself was disconnected from voice
+        if member.id == self.bot.user.id:
+            if after.channel is None:
+                log.info(f"Bot was disconnected from voice channel in {guild.name}.")
+                await self._cleanup_guild(guild.id)
             return
-        # someone left a voice channel. do we care?
-        if member.guild and member.guild.id in self.runningTTS and member.id in ttsInstance.users:
-            del ttsInstance.users[member.id]
 
-        if self.bot.user.id == member.id and after.channel is None and member.guild.id in self.runningTTS:
-            del self.runningTTS[member.guild.id]
+        # 2. If a registered TTS user changed voice state
+        if member.id in instance.users:
+            if after.channel != instance.voiceClient.channel:
+                log.info(f"TTS user {member.display_name} left bot's channel in {guild.name}.")
+                del instance.users[member.id]
 
-        if len(ttsInstance.users) == 0:
-            await ttsInstance.voiceClient.disconnect()
-            del self.runningTTS[member.guild.id]
+                # Check if all registered TTS users have left
+                if len(instance.users) == 0:
+                    log.info(f"All TTS users left in {guild.name}. Disconnecting voice client.")
+                    await self._cleanup_guild(guild.id)
+                    return
 
     async def sendTTS(self, text: str, ttsInstance: TTSInstance, ttsUser: TTSUserInstance):
         if not ttsInstance.voiceClient.is_connected():
@@ -147,31 +195,13 @@ class VoiceTTS(Cog):
             return
         buff_sound = io.BytesIO(synth_bytes)
 
-        sound = discord.FFmpegOpusAudio(buff_sound, pipe=True)
-        ttsInstance.queue.append(sound)
-        if not self.running_queue_handlers.get(ttsInstance.voiceClient.guild.id):
-            await self.queue_handler(ttsInstance)
-
-    async def queue_handler(self, instance: TTSInstance):
-        self.running_queue_handlers[instance.voiceClient.guild.id] = True
-        # make sure we still have a good voice client
-        if not instance.voiceClient.is_connected():
-            instance.voiceClient = await instance.voiceClient.channel.connect()
         try:
-            if instance.voiceClient.is_playing():
-                # wait, did we get stuck, or are we just waiting for the next thing?
-                await asyncio.sleep(0.3)  # more than .25 to allow for next audio to start
-                if instance.voiceClient.is_playing():
-                    return
-            while len(instance.queue) > 0:
-                if instance.voiceClient.is_playing():
-                    await asyncio.sleep(0.25)
-                    continue
-                next = instance.queue.pop(0)
-                instance.voiceClient.play(next, after=self.after)
-                await asyncio.sleep(0.25)
-        finally:
-            self.running_queue_handlers[instance.voiceClient.guild.id] = False
+            sound = discord.FFmpegOpusAudio(buff_sound, pipe=True)
+        except Exception as e:
+            log.exception(f"Failed to create FFmpegOpusAudio: {e}")
+            return
+
+        await ttsInstance.queue.put(sound)
 
     async def model_autocomplete(
         self, interaction: discord.Interaction, guess: str
@@ -231,11 +261,24 @@ class VoiceTTS(Cog):
             names = [z['name'] for z in voice_raw]
             if model not in names:
                 await interaction.response.send_message("Invalid voice model", ephemeral=True)
-            return
+                return
+
+        tts_user = TTSUserInstance(
+            VoiceSelectionParams(language_code=model[:5], name=model),
+            interaction.channel,
+        )
 
         if interaction.guild.id not in self.runningTTS:
+            await interaction.response.defer(ephemeral=False)
             vc = await interaction.user.voice.channel.connect()
-            self.runningTTS[interaction.guild.id] = TTSInstance(vc)
+            instance = TTSInstance(vc, users={interaction.user.id: tts_user})
+            instance.worker_task = self.bot.loop.create_task(
+                self._queue_worker(interaction.guild.id, instance)
+            )
+            self.runningTTS[interaction.guild.id] = instance
+            await interaction.followup.send(
+                "TTS is now enabled for you. leaving the voice channel will end your tts.\n\nIf you start a message with //, it will be ignored."
+            )
         else:
             # theres already a vc running, we need to make sure someone doesn't want us in two places at once
             if interaction.user.id in self.runningTTS[interaction.guild.id].users:
@@ -248,19 +291,11 @@ class VoiceTTS(Cog):
                     "You are not in the same voice channel as the existing session. can not start.", ephemeral=True
                 )
                 return
-        self.runningTTS[interaction.guild.id].users[interaction.user.id] = TTSUserInstance(
-            VoiceSelectionParams(language_code=model[:5], name=model),
-            interaction.channel,
-        )
-
-        await interaction.response.send_message(
-            "TTS is now enabled for you. leaving the voice channel will end your tts.\n\nIf you start a message with //, it will be ignored.",
-            ephemeral=False,
-        )
-
-    def after(self, error: Optional[Exception]):
-        if error:
-            log.exception(error)
+            self.runningTTS[interaction.guild.id].users[interaction.user.id] = tts_user
+            await interaction.response.send_message(
+                "TTS is now enabled for you. leaving the voice channel will end your tts.\n\nIf you start a message with //, it will be ignored.",
+                ephemeral=False,
+            )
 
     async def _vc_tts_validation(self, interaction, model):
 
@@ -276,10 +311,11 @@ class VoiceTTS(Cog):
 
         elif interaction.guild_id in self.runningTTS:
             if interaction.user.id in self.runningTTS[interaction.guild_id].users and model == "QUIT":
-                del self.runningTTS[interaction.guild_id].users[interaction.user.id]
+                instance = self.runningTTS[interaction.guild_id]
+                del instance.users[interaction.user.id]
                 await interaction.response.send_message("ended your voice tts session.", ephemeral=True)
-                if len(self.runningTTS[interaction.guild_id].users) == 0:
-                    await self.runningTTS[interaction.guild_id].voiceClient.disconnect()
+                if len(instance.users) == 0:
+                    await self._cleanup_guild(interaction.guild_id)
                 valid = False
             elif interaction.user.voice.channel.id != self.runningTTS[interaction.guild_id].voiceClient.channel.id:
                 await interaction.response.send_message(
@@ -291,17 +327,40 @@ class VoiceTTS(Cog):
 
 
 async def setup(bot):
-    try:
-        discord.opus.load_opus(ctypes.util.find_library("opus"))
-    except Exception as e:
-        log.exception(e)
-        log.error("Could not load opus library")
-        log.error('not loading voiceTTS module')
+    if not discord.opus.is_loaded():
+        for name in [
+            ctypes.util.find_library("opus"),
+            "libopus.so.0",
+            "libopus.so",
+            "libopus.0.dylib",
+            "opus",
+        ]:
+            if not name:
+                continue
+            try:
+                discord.opus.load_opus(name)
+                break
+            except Exception:
+                pass
+
+        if not discord.opus.is_loaded():
+            import glob
+
+            for match in glob.glob("/nix/store/*libopus*/lib/libopus.so.0"):
+                try:
+                    discord.opus.load_opus(match)
+                    break
+                except Exception:
+                    pass
+
+    if not discord.opus.is_loaded():
+        log.error("Could not load opus library; not loading voiceTTS module")
         return
+
     try:
         cog = VoiceTTS(bot)
         await bot.add_cog(cog)
     except Exception as e:
         log.exception(e)
-        log.error('not loading voiceTTS module')
+        log.error("not loading voiceTTS module")
         return
