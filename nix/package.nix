@@ -44,18 +44,63 @@ let
       version = "0.3.0";
       sha256 = "031kh4kr7nyw9jl1h98svp75np5y84g8b5ym8bf4y7jbamirl4sc";
     };
-    propagatedBuildInputs = with pkgs.python3Packages; [ gtts-token aiohttp pyjwt ];
+    propagatedBuildInputs = with pkgs.python3Packages; [ gtts-token aiohttp pyjwt cryptography ];
     doCheck = false;
   };
 
+  # Custom Python dependency: davey (DAVE protocol E2EE)
+  davey = pkgs.python3Packages.buildPythonPackage rec {
+    pname = "davey";
+    version = "0.1.6";
+    format = "wheel";
+    src = pkgs.python3Packages.fetchPypi rec {
+      inherit pname version format;
+      dist = "cp313";
+      python = "cp313";
+      abi = "cp313";
+      platform = "manylinux_2_17_x86_64.manylinux2014_x86_64";
+      sha256 = "b2bf56e88588c4e00690b9e5f81b09121855a338349ada0d2899c08270159cf3";
+    };
+    doCheck = false;
+  };
+
+  # Discord.py 2.7.1 with DAVE protocol support
+  discordpy-dave = pkgs.python3Packages.buildPythonPackage rec {
+    pname = "discord.py";
+    version = "2.7.1";
+    pyproject = true;
+    build-system = [ pkgs.python3Packages.setuptools ];
+    src = pkgs.python3Packages.fetchPypi {
+      pname = "discord_py";
+      version = "2.7.1";
+      sha256 = "24d5e6a45535152e4b98148a9dd6b550d25dc2c9fb41b6d670319411641249da";
+    };
+    propagatedBuildInputs = with pkgs.python3Packages; [
+      aiohttp
+      pynacl
+      davey
+      audioop-lts
+    ];
+    doCheck = false;
+  };
+
+  python = pkgs.python3.override {
+    packageOverrides = self: super: {
+      inherit davey;
+      discordpy = discordpy-dave;
+    };
+  };
+
   # Python environment with all required dependencies
-  pythonEnv = pkgs.python3.withPackages (ps: with ps; [
+  pythonEnv = python.withPackages (ps: with ps; [
     # Standard dependencies from requirements.txt
     speechrecognition
     openai-whisper
     pydub
     soundfile
     discordpy
+    davey
+    audioop-lts
     jishaku
     aiohttp
     chardet
@@ -75,6 +120,7 @@ let
     psycopg2
     asyncpg
     python-dotenv
+    cryptography
 
     # Custom dependencies packaged above
     geomag
@@ -99,7 +145,8 @@ pkgs.stdenv.mkDerivation {
     makeWrapper ${pythonEnv}/bin/python $out/bin/alex-bot \
       --add-flags "$out/share/alex-bot/bot.py" \
       --set PYTHONPATH "$out/share/alex-bot" \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.ffmpeg ]}
+      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.ffmpeg ]} \
+      --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath [ pkgs.libopus ]}
 
     # Link alembic script to bin so migrations can be run easily
     ln -s ${pythonEnv}/bin/alembic $out/bin/alembic

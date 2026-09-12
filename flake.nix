@@ -27,7 +27,11 @@
           packages = [
             alex-bot.pythonEnv
             pkgs.ffmpeg
+            pkgs.libopus
           ];
+          shellHook = ''
+            export LD_LIBRARY_PATH="${pkgs.libopus}/lib:$LD_LIBRARY_PATH"
+          '';
         };
       }
     ) // {

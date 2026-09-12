@@ -6,6 +6,7 @@ soundfile~=0.13.1
 #SMALLER
 
 discord.py[voice] ~=2.7.0
+davey~=0.1.6
 jishaku @ git+https://github.com/Gorialis/jishaku@master
 aiohttp ~=3.13.0
 chardet~=5.2.0
@@ -25,6 +26,7 @@ httpx~=0.28.0
 feedparser~=6.0.11
 aiomqtt~=2.4
 async-gTTS~=0.3.0
+cryptography>=42.0.0
 SQLAlchemy~=2.0.29
 alembic~=1.17.0
 psycopg2~=2.9.9
