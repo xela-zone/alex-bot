@@ -26,15 +26,16 @@ cogs = [
 # cogs = ['reminders', 'errors']  # used to test single cog at a time
 
 log = logging.getLogger('alexBot')
-log.setLevel(logging.DEBUG)
+log.setLevel(logging.INFO)
 
 handler = logging.StreamHandler()
-handler.setLevel(logging.INFO)
+handler.setLevel(logging.DEBUG)
 handler.setFormatter(
     logging.Formatter('[%(asctime)s] [%(levelname)s] [%(name)s]: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 )
 
-log.addHandler(handler)
+logging.getLogger().addHandler(handler)
+logging.getLogger().setLevel(logging.INFO)
 
 for logPath in ['discord', 'websockets', 'aiosqlite']:
     z = logging.getLogger(logPath)
@@ -63,6 +64,7 @@ class Bot(commands.Bot):
         self.setup_hook = self.cogSetup
         self.minecraft = True
         self.handler = handler
+        self.log = log
         self.voiceCommandsGroup = app_commands.Group(
             name="voice", description="Voice related commands", guild_only=True
         )
