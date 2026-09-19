@@ -130,7 +130,7 @@ let
 in
 pkgs.stdenv.mkDerivation {
   pname = "alex-bot";
-  version = "2.5.0";
+  version = "2.5.1";
 
   src = ./..;
 
