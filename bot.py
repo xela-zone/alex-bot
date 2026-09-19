@@ -4,6 +4,7 @@
 
 import asyncio
 import logging
+import os
 import re
 import sys
 from pathlib import Path
@@ -43,6 +44,8 @@ for logPath in ['discord', 'websockets', 'aiosqlite']:
 for logPath in ['sqlalchemy', 'discord.gateway']:
     z = logging.getLogger(logPath)
     z.setLevel(logging.ERROR)
+if os.environ.get("DEBUG_VOICE"):
+    logging.getLogger('discord.voice_state').setLevel(logging.DEBUG)
 
 LINKWRAPPERREGEX = re.compile(r'(http[s]?://(?:[a-zA-Z]|[0-9]|[#-_]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+)', re.I)
 
