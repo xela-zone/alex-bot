@@ -79,6 +79,7 @@ in
         ExecStartPre = pkgs.writeShellScript "alex-bot-setup" ''
           # Link alembic and package resources into the temporary runtime directory
           ln -sf ${cfg.package}/share/alex-bot/alembic.ini /run/alex-bot/alembic.ini
+          ln -sf ${cfg.package}/share/alex-bot/config.py /run/alex-bot/config.py
           ln -sfT ${cfg.package}/share/alex-bot/alembic /run/alex-bot/alembic
           ln -sfT ${cfg.package}/share/alex-bot/alexBot /run/alex-bot/alexBot
 
