@@ -62,6 +62,8 @@ in
       in {
         Type = "simple";
         DynamicUser = true;
+        User = "alexbot";
+        Group = "alexbot";
         RuntimeDirectory = "alex-bot";
         WorkingDirectory = "/run/alex-bot";
         EnvironmentFile = lib.optional (cfg.environmentFile != null) cfg.environmentFile;
